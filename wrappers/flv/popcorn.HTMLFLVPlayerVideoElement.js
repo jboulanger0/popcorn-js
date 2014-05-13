@@ -1,11 +1,13 @@
 
 // PLAYER URL
-// 
+//
 
 (function( Popcorn, window, document ) {
 
   var EMPTY_STRING = "",
-      SWF_URL = "https://bo-static.omnitagjs.com/bo-static/swf/player.swf"
+      CURRENT_TIME_MONITOR_MS = 10,
+      SWF_URL = "http://flv-player.net/medias/player_flv_js.swf",
+      ABS = Math.abs;
 
   function HTMLFLVPlayerVideoElement( id ) {
     var self = new Popcorn._MediaElementProto(),
@@ -29,11 +31,17 @@
         paused: true,
         error: null
       },
+      playerUID = Popcorn.guid(),
+      playerReady = false,
+      playerPaused = true,
       mediaReady = false,
       loopedPlay = false,
       player,
       mediaReadyCallbacks = [],
       lastLoadedFraction = 0,
+      lastVolume = -1,
+      bufferedInterval,
+      currentTimeInterval;
 
     // Namespace all events we'll produce
     self._eventNamespace = Popcorn.guid( "HTMLFLVPlayerVideoElement::" );
@@ -43,31 +51,114 @@
     // Mark this as FLVPlayer
     self._util.type = "FLVPlayer";
 
+    function destroyPlayer() {
+      if( !( playerReady && player ) ) {
+        return;
+      }
+      clearInterval( currentTimeInterval );
+      clearInterval( bufferedInterval );
+      self.pause()
+      parent.removeChild( elem );
+      elem = document.createElement( "embed" );
+    }
+
+
+
+    function monitorCurrentTime() {
+      var playerTime = listener.position;
+      if ( !impl.seeking ) {
+        impl.currentTime = playerTime;
+        if ( ABS( impl.currentTime - playerTime ) > CURRENT_TIME_MONITOR_MS ) {
+          onSeeking();
+          onSeeked();
+        }
+      } else if ( ABS( playerTime - impl.currentTime ) < 1 ) {
+        onSeeked();
+      }
+    }
+
+        function monitorBuffered() {
+      var fraction = listener.bytesLoaded;
+
+      if ( lastLoadedFraction !== fraction ) {
+        lastLoadedFraction = fraction;
+
+        onProgress();
+
+        if ( fraction >= 1 ) {
+          clearInterval( bufferedInterval );
+        }
+      }
+    }
+
+
     function addMediaReadyCallback( callback ) {
       mediaReadyCallbacks.unshift( callback );
     }
 
+    var listener = window["flvplayer_listener_"+playerUID] = {
+        onClick:     function(){
+
+        },
+        onKeyUp:     function(){
+
+        },
+        onInit:      function(){
+            console.log(this)
+            playerReady = true
+            player = document.getElementById(playerUID)
+            player.SetVariable("method:setUrl", impl.src)
+        },
+        onFinished:  function(){
+          onEnded()
+        },
+        onUpdate:    function(){
+          if(playerReady){
+            onUpdate()
+          }
+
+        }
+    }
+
+
+    function onUpdate(){
+      if (listener.isPlaying == "true") {
+        if (listener.position > 0) {
+          onTimeUpdate()
+        } else {
+          onBuffering()
+        }
+      }else{
+        if ( getDuration() > 0) {
+          if(!playerPaused){
+            onPause()
+          }
+        } else {
+          if(!mediaReady){
+            onReady()
+          }
+        }
+      }
+    }
+
     function onReady() {
-      
-    }
+      bufferedInterval = setInterval( monitorBuffered, 50 );
+      impl.duration = listener.duration;
+      impl.readyState = self.HAVE_METADATA;
+      self.dispatchEvent( "loadedmetadata" );
+      currentTimeInterval = setInterval( monitorCurrentTime, CURRENT_TIME_MONITOR_MS );
+      self.dispatchEvent( "loadeddata" );
 
-    function onPauseEvent() {
-      
-    }
-    function onPlayEvent() {
-     
-    }
-
-    function onSeekEvent() {
-    
-    }
-
-    function onPlayerReady() {
-
-    }
-
-    function getDuration() {
-      return player.getDuration();
+      impl.readyState = self.HAVE_FUTURE_DATA;
+      self.dispatchEvent( "canplay" );
+      mediaReady = true
+      var i = mediaReadyCallbacks.length;
+      while( i-- ) {
+        mediaReadyCallbacks[ i ]();
+        delete mediaReadyCallbacks[ i ];
+      }
+      impl.readyState = self.HAVE_ENOUGH_DATA;
+      self.dispatchEvent( "canplaythrough" );
     }
 
     function onPlayerError( e ) {
@@ -79,100 +170,6 @@
       self.dispatchEvent( "error" );
     }
 
-    function destroyPlayer() {
-      // remove embed player
-      //player.destroy();
-      player.pause();
-      parent.removeChild( elem );
-      elem = document.createElement( "div" );
-    }
-
-    function createPlayer(playerVars){
-      //integrate EMBED
-      var param = document.createElement('param');
-          
-      elem.setAttribute('width', "100%");
-      elem.setAttribute('height', "100%");
-      elem.setAttribute('data', SWF_URL);
-
-      param.setAttribute('name', 'movie');
-      param.setAttribute('value', SWF_URL);
-      elem.appendChild(param);
-
-      param.setAttribute('name', 'allowFullScreen');
-      param.setAttribute('value', "true");
-      elem.appendChild(param);
-
-      param.setAttribute('name', 'AllowScriptAccess');
-      param.setAttribute('value', "always");
-      elem.appendChild(param);
-      
-      param.setAttribute('name', 'bgcolor');
-      param.setAttribute('value', "#000000");
-      elem.appendChild(param);
-      
-      param.setAttribute('name', 'FlashVars');
-      param.setAttribute('value', playerVars); // stringify playerVars
-      elem.appendChild(param);
-      
-      var embed = document.createElement('embed');
-          embed.setAttribute('src', SWF_URL);
-          embed.setAttribute('type', 'application/x-shockwave-flash');
-          embed.setAttribute('allowfullscreen', "true");
-          embed.setAttribute('allowScriptAccess',"always");
-          embed.setAttribute('wmode', "opaque");
-          embed.setAttribute('width', "100%");
-          embed.setAttribute('height', "100%");
-          embed.setAttribute('FlashVars', playerVars); // stringify playerVars
-
-      elem.appendChild(embed)
-      self.parentNode.appendChild(elem)
-    }
-
-    function changeSrc( aSrc ) {
-      if ( !self._canPlaySrc( aSrc ) ) {
-        impl.error = {
-          name: "MediaError",
-          message: "Media Source Not Supported",
-          code: MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
-        };
-        self.dispatchEvent( "error" );
-        return;
-      }
-      mediaReady = false
-      // Use any player vars passed on the URL
-      var playerVars = "interval=" +self._util.TIMEUPDATE_MS + "&bgcolor=000000&listener=ayl_video_listener";
-
-      //implement player ready add changeSRC to player callback
-
-      impl.src = aSrc;
-
-      if ( !playerReady ) {
-        createPlayer(playerVars);
-      }
-
-      impl.networkState = self.NETWORK_LOADING;
-      self.dispatchEvent( "loadstart" );
-      self.dispatchEvent( "progress" );
-    }
-
-    function getCurrentTime() {
-      return impl.currentTime;
-    }
-
-    function changeCurrentTime( aTime ) {
-      impl.currentTime = aTime;
-      if ( !mediaReady ) {
-        addMediaReadyCallback( function() {
-          onSeeking();
-          player.seek( aTime );
-        });
-        return;
-      }
-
-      onSeeking();
-      player.seek( aTime );
-    }
 
     function onSeeking() {
       impl.seeking = true;
@@ -182,10 +179,7 @@
     function onSeeked() {
       impl.ended = false;
       impl.seeking = false;
-      self.dispatchEvent( "timeupdate" );
       self.dispatchEvent( "seeked" );
-      self.dispatchEvent( "canplay" );
-      self.dispatchEvent( "canplaythrough" );
     }
 
     function onPlay() {
@@ -207,19 +201,6 @@
       self.dispatchEvent( "progress" );
     }
 
-    self.play = function() {
-      self.dispatchEvent( "play" );
-      impl.paused = false;
-      if ( !mediaReady ) {
-        addMediaReadyCallback( function() { self.play(); } );
-        return;
-      }
-      if ( impl.ended ) {
-        changeCurrentTime( 0 );
-        impl.ended = false;
-      }
-      player.play( true );
-    };
 
     function onPause() {
       impl.paused = true;
@@ -229,50 +210,184 @@
       }
     }
 
-    self.pause = function() {
-      impl.paused = true;
-      if ( !mediaReady ) {
-        addMediaReadyCallback( function() { self.pause(); } );
-        return;
-      }
-      player.pause( true );
-    };
-
     function onEnded() {
       if ( impl.loop ) {
         changeCurrentTime( 0 );
+        self.play();
       } else {
         impl.ended = true;
         onPause();
-        self.dispatchEvent( "timeupdate" );
         self.dispatchEvent( "ended" );
       }
     }
 
+    function onTimeUpdate() {
+      self.dispatchEvent( "timeupdate" );
+    }
+
+    function onBuffering() {
+      impl.networkState = self.NETWORK_LOADING;
+      self.dispatchEvent( "waiting" );
+    }
+
+    self.play = function() {
+      if ( !mediaReady ) {
+        addMediaReadyCallback( function() { self.play(); } );
+        return;
+      }
+      impl.paused = false;
+      if ( impl.ended ) {
+        changeCurrentTime( 0 );
+        impl.ended = false;
+      }
+
+      this.player.SetVariable("method:play", "")
+      self.dispatchEvent( "play" );
+    };
+
+
+
+    self.pause = function() {
+
+      if ( !mediaReady ) {
+        addMediaReadyCallback( function() { self.pause(); } );
+        return;
+      }
+      impl.paused = true;
+      this.player.SetVariable("method:pause", "")
+    };
+
+
+
+    function getCurrentTime() {
+      return impl.position;
+    }
+
+    function changeCurrentTime( aTime ) {
+      if ( !mediaReady ) {
+        addMediaReadyCallback( function() {
+          changeCurrentTime( aTime )
+        });
+        return;
+      }
+      impl.currentTime = aTime;
+      onSeeking();
+      player.SetVariable("method:position", aTime)
+    }
+
+    function changeSrc( aSrc ) {
+      if ( !self._canPlaySrc( aSrc ) ) {
+        impl.error = {
+          name: "MediaError",
+          message: "Media Source Not Supported",
+          code: MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+        };
+        self.dispatchEvent( "error" );
+        return;
+      }
+      mediaReady = false
+      playerReady = false
+
+      // Use any player vars passed on the URL
+      var playerVars = "interval=" + CURRENT_TIME_MONITOR_MS + "&bgcolor=000000&listener=flvplayer_listener_" + playerUID;
+
+      //implement player ready add changeSRC to player callbac
+      impl.src = aSrc;
+      if(!playerReady){
+
+
+        elem.setAttribute('id', playerUID);
+        elem.setAttribute('width', "100%");
+        elem.setAttribute('height', "100%");
+        elem.setAttribute('data', SWF_URL);
+
+        var param = document.createElement('param');
+        param.setAttribute('name', 'movie');
+        param.setAttribute('value', SWF_URL);
+        elem.appendChild(param);
+
+        param = document.createElement('param');
+        param.setAttribute('name', 'allowFullScreen');
+        param.setAttribute('value', "true");
+        elem.appendChild(param);
+
+        param = document.createElement('param');
+        param.setAttribute('name', 'AllowScriptAccess');
+        param.setAttribute('value', "always");
+        elem.appendChild(param);
+
+        param = document.createElement('param');
+        param.setAttribute('name', 'bgcolor');
+        param.setAttribute('value', "#000000");
+        elem.appendChild(param);
+
+        param = document.createElement('param');
+        param.setAttribute('name', 'FlashVars');
+        param.setAttribute('value', playerVars); // stringify playerVars
+        elem.appendChild(param);
+
+        var embed = document.createElement('embed');
+            embed.setAttribute('src', SWF_URL);
+            embed.setAttribute('type', 'application/x-shockwave-flash');
+            embed.setAttribute('allowfullscreen', "true");
+            embed.setAttribute('allowScriptAccess',"always");
+            embed.setAttribute('wmode', "opaque");
+            embed.setAttribute('width', "100%");
+            embed.setAttribute('height', "100%");
+            embed.setAttribute('FlashVars', playerVars); // stringify playerVars
+
+        elem.appendChild(embed)
+        self.parentNode.appendChild(elem)
+
+      }else{
+        player.SetVariable("method:setUrl", impl.src)
+      }
+      impl.networkState = self.NETWORK_LOADING;
+      self.dispatchEvent( "loadstart" );
+      self.dispatchEvent( "progress" );
+      if(impl.autoplay){
+        self.play()
+      }
+    }
+
+
+
+
     function setVolume( aValue ) {
-      impl.volume = aValue;
       if ( !mediaReady ) {
         addMediaReadyCallback( function() {
           setVolume( impl.volume );
         });
         return;
       }
-      player.setVolume( impl.volume * 100 );
+      impl.volume = aValue;
+      player.SetVariable("method:setVolume", impl.volume * 100)
       self.dispatchEvent( "volumechange" );
     }
 
     function setMuted( aValue ) {
-      impl.muted = aValue;
       if ( !mediaReady ) {
-        addMediaReadyCallback( function() { setMuted( impl.muted ); } );
+        addMediaReadyCallback( function() { setMuted( aValue ); } );
         return;
       }
-      player.setMute( aValue );
-      self.dispatchEvent( "volumechange" );
+
+      impl.muted = aValue;
+      if(impl.muted){
+        lastVolume = impl.volume
+        setVolume(0)
+      }else if(lastVolume > -1){
+        setVolume(lastVolume)
+        lastVolume = -1
+      }
+
     }
 
     function getMuted() {
       return impl.muted;
+    }
+
+    function getDuration() {
+      return listener.duration;
     }
 
     Object.defineProperties( self, {
@@ -410,7 +525,7 @@
                   return 0;
                 }
 
-                return duration * ( player.getBuffer() / 100 );
+                return duration * ( listener.bytesLoaded / 100 );
               }
 
               //throw fake DOMException/INDEX_SIZE_ERR
@@ -436,14 +551,12 @@
 
   // Helper for identifying URLs we know how to play.
   Popcorn.HTMLFLVPlayerVideoElement._canPlaySrc = function( url ) {
-    // Because of the nature of JWPlayer playing all media types,
-    // it can potentially play all url formats.
-    return "probably";
+    return (/\.flv/).test( url ) ? "probably" : EMPTY_STRING;
   };
 
   // This could potentially support everything. It is a bit of a catch all player.
   Popcorn.HTMLFLVPlayerVideoElement.canPlayType = function( type ) {
-    return "probably";
+    return type === "video/x-flv" || type === "video/flv" ? "probably" : EMPTY_STRING;
   };
 
 }( Popcorn, window, document ));
