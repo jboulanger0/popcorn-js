@@ -12,52 +12,51 @@
 
   // Setup for YouTube API
   ytReady = false,
-  ytLoading = false,
+  ytLoaded = false,
   ytCallbacks = [];
 
-  function onYouTubeIframeAPIReady() {
-    var callback;
-    if ( YT.loaded ) {
-      ytReady = true;
-      while( ytCallbacks.length ) {
-        callback = ytCallbacks.shift();
-        callback();
-      }
-    } else {
-      setTimeout( onYouTubeIframeAPIReady, 250 );
-    }
-  }
-
   function isYouTubeReady() {
-    var script;
-    // If we area already waiting, do nothing.
-    if( !ytLoading ) {
-      // If script is already there, check if it is loaded.
-      if ( window.YT ) {
-        onYouTubeIframeAPIReady();
-      } else {
-        script = document.createElement( "script" );
-        script.addEventListener( "load", onYouTubeIframeAPIReady, false);
-        script.src = "https://www.youtube.com/iframe_api";
-        document.head.appendChild( script );
-      }
-      ytLoading = true;
+    // If the YouTube iframe API isn't injected, to it now.
+    if( !ytLoaded ) {
+      var tag = document.createElement( "script" );
+      var protocol = window.location.protocol === "file:" ? "http:" : "";
+
+      tag.src = protocol + "//www.youtube.com/iframe_api";
+      var firstScriptTag = document.getElementsByTagName( "script" )[ 0 ];
+      firstScriptTag.parentNode.insertBefore( tag, firstScriptTag );
+      ytLoaded = true;
     }
     return ytReady;
   }
 
   function addYouTubeCallback( callback ) {
-    ytCallbacks.push( callback );
+    ytCallbacks.unshift( callback );
   }
+
+  // An existing YouTube references can break us.
+  // Remove it and use the one we can trust.
+  if ( window.YT ) {
+    window.quarantineYT = window.YT;
+    window.YT = null;
+  }
+
+  window.onYouTubeIframeAPIReady = function() {
+    ytReady = true;
+    var i = ytCallbacks.length;
+    while( i-- ) {
+      ytCallbacks[ i ]();
+      delete ytCallbacks[ i ];
+    }
+  };
 
   function HTMLYouTubeVideoElement( id ) {
 
     // YouTube iframe API requires postMessage
     if( !window.postMessage ) {
-      throw "ERROR: HTMLYouTubeVideoElement requires window.postMessage";
+      throw new Error("ERROR: HTMLYouTubeVideoElement requires window.postMessage");
     }
 
-    var self = new Popcorn._MediaElementProto(),
+    var self = this,
       parent = typeof id === "string" ? document.querySelector( id ) : id,
       elem = document.createElement( "div" ),
       impl = {
@@ -79,6 +78,8 @@
         error: null
       },
       playerReady = false,
+      catchRoguePauseEvent = false,
+      catchRoguePlayEvent = false,
       mediaReady = false,
       loopedPlay = false,
       player,
@@ -88,7 +89,8 @@
       bufferedInterval,
       lastLoadedFraction = 0,
       currentTimeInterval,
-      timeUpdateInterval;
+      timeUpdateInterval,
+      firstPlay = true;
 
     // Namespace all events we'll produce
     self._eventNamespace = Popcorn.guid( "HTMLYouTubeVideoElement::" );
@@ -99,40 +101,40 @@
     self._util.type = "YouTube";
 
     function addMediaReadyCallback( callback ) {
-      mediaReadyCallbacks.push( callback );
-    }
-
-    function catchRoguePlayEvent() {
-      player.pauseVideo();
-      removeYouTubeEvent( "play", catchRoguePlayEvent );
-      addYouTubeEvent( "play", onPlay );
-    }
-
-    function catchRoguePauseEvent() {
-      addYouTubeEvent( "pause", onPause );
-      removeYouTubeEvent( "pause", catchRoguePauseEvent );
+      mediaReadyCallbacks.unshift( callback );
     }
 
     function onPlayerReady( event ) {
-
-      var onMuted = function() {
-        if ( player.isMuted() ) {
-          // force an initial play on the video, to remove autostart on initial seekTo.
-          addYouTubeEvent( "play", onFirstPlay );
-          player.playVideo();
-        } else {
-          setTimeout( onMuted, 0 );
-        }
-      };
       playerReady = true;
+      //HOT FIX
+      player.addEventListener('onStateChange', onPlayerStateChange);
       // XXX: this should really live in cued below, but doesn't work.
 
       // Browsers using flash will have the pause() call take too long and cause some
       // sound to leak out. Muting before to prevent this.
       player.mute();
+    }
 
-      // ensure we are muted.
-      onMuted();
+    function getDuration() {
+      if( !mediaReady ) {
+        // loadedmetadata properly sets the duration, so nothing to do here yet.
+        return impl.duration;
+      }
+
+      var oldDuration = impl.duration,
+          newDuration = player.getDuration();
+
+      // Deal with duration=0 from YouTube
+      if( newDuration ) {
+        if( oldDuration !== newDuration ) {
+          impl.duration = newDuration;
+          self.dispatchEvent( "durationchange" );
+        }
+      } else {
+        setTimeout( getDuration, 50 );
+      }
+
+      return newDuration;
     }
 
     function onPlayerError(event) {
@@ -174,120 +176,77 @@
       self.dispatchEvent( "error" );
     }
 
-    function onReady() {
-
-      addYouTubeEvent( "play", onPlay );
-      addYouTubeEvent( "pause", onPause );
-      // Set initial paused state
-      if( impl.autoplay || !impl.paused ) {
-        removeYouTubeEvent( "play", onReady );
-        impl.paused = false;
-        addMediaReadyCallback(function() {
-          if ( !impl.paused ) {
-            onPlay();
-          }
-        });
-      }
-
-      // Ensure video will now be unmuted when playing due to the mute on initial load.
-      if( !impl.muted ) {
-        player.unMute();
-      }
-
-      impl.readyState = self.HAVE_METADATA;
-      self.dispatchEvent( "loadedmetadata" );
-      currentTimeInterval = setInterval( monitorCurrentTime,
-                                         CURRENT_TIME_MONITOR_MS );
-
-      self.dispatchEvent( "loadeddata" );
-
-      impl.readyState = self.HAVE_FUTURE_DATA;
-      self.dispatchEvent( "canplay" );
-
-      mediaReady = true;
-      bufferedInterval = setInterval( monitorBuffered, 50 );
-
-      while( mediaReadyCallbacks.length ) {
-        mediaReadyCallbacks[ 0 ]();
-        mediaReadyCallbacks.shift();
-      }
-
-      // We can't easily determine canplaythrough, but will send anyway.
-      impl.readyState = self.HAVE_ENOUGH_DATA;
-      self.dispatchEvent( "canplaythrough" );
-    }
-
-    function onFirstPause() {
-      removeYouTubeEvent( "pause", onFirstPause );
-      if ( player.getCurrentTime() > 0 ) {
-        setTimeout( onFirstPause, 0 );
-        return;
-      }
-
-      if( impl.autoplay || !impl.paused ) {
-        addYouTubeEvent( "play", onReady );
-        player.playVideo();
-      } else {
-        onReady();
-      }
-    }
-
-    // This function needs duration and first play to be ready.
-    function onFirstPlay() {
-      removeYouTubeEvent( "play", onFirstPlay );
-      if ( player.getCurrentTime() === 0 ) {
-        setTimeout( onFirstPlay, 0 );
-        return;
-      }
-      addYouTubeEvent( "pause", onFirstPause );
-      player.seekTo( 0 );
-      player.pauseVideo();
-    }
-
-    function addYouTubeEvent( event, listener ) {
-      self.addEventListener( "youtube-" + event, listener, false );
-    }
-    function removeYouTubeEvent( event, listener ) {
-      self.removeEventListener( "youtube-" + event, listener, false );
-    }
-    function dispatchYouTubeEvent( event ) {
-      self.dispatchEvent( "youtube-" + event );
-    }
-
-    function onBuffering() {
-      impl.networkState = self.NETWORK_LOADING;
-      self.dispatchEvent( "waiting" );
-    }
-
-    addYouTubeEvent( "buffering", onBuffering );
-    addYouTubeEvent( "ended", onEnded );
-
     function onPlayerStateChange( event ) {
-
       switch( event.data ) {
 
         // ended
         case YT.PlayerState.ENDED:
-          dispatchYouTubeEvent( "ended" );
+          onEnded();
+          // Seek back to the start of the video to reset the player,
+          // otherwise the player can become locked out.
+          // I do not see this happen all the time or on all systems.
+          player.seekTo( 0 );
           break;
 
         // playing
         case YT.PlayerState.PLAYING:
-          dispatchYouTubeEvent( "play" );
+          if( firstPlay ) {
+            // fake ready event
+            firstPlay = false;
+
+            addMediaReadyCallback(function() {
+              bufferedInterval = setInterval( monitorBuffered, 50 );
+            });
+
+            if( !impl.muted ) {
+              player.unMute();
+            }
+
+            impl.duration = player.getDuration();
+            impl.readyState = self.HAVE_METADATA;
+            self.dispatchEvent( "loadedmetadata" );
+            currentTimeInterval = setInterval( monitorCurrentTime,
+                                               CURRENT_TIME_MONITOR_MS );
+
+            self.dispatchEvent( "loadeddata" );
+
+            impl.readyState = self.HAVE_FUTURE_DATA;
+            self.dispatchEvent( "canplay" );
+
+            mediaReady = true;
+            var i = mediaReadyCallbacks.length;
+            while( i-- ) {
+              mediaReadyCallbacks[ i ]();
+              delete mediaReadyCallbacks[ i ];
+            }
+
+            // We can't easily determine canplaythrough, but will send anyway.
+            impl.readyState = self.HAVE_ENOUGH_DATA;
+            self.dispatchEvent( "canplaythrough" );
+          }
+    if ( catchRoguePlayEvent ) {
+            catchRoguePlayEvent = false;
+            player.pauseVideo();
+          } else {
+            onPlay();
+          }
           break;
 
         // paused
         case YT.PlayerState.PAUSED:
-          // Youtube fires a paused event before an ended event.
-          // We have no need for this.
-          if ( player.getDuration() !== player.getCurrentTime() ) {
-            dispatchYouTubeEvent( "pause" );
+          // a seekTo call fires a pause event, which we don't want at this point.
+          // as long as a seekTo continues to do this, we can safly toggle this state.
+          if ( catchRoguePauseEvent ) {
+            catchRoguePauseEvent = false;
+            break;
           }
+          onPause();
           break;
 
         // buffering
         case YT.PlayerState.BUFFERING:
-          dispatchYouTubeEvent( "buffering" );
+          impl.networkState = self.NETWORK_LOADING;
+          self.dispatchEvent( "waiting" );
           break;
 
         // video cued
@@ -308,21 +267,12 @@
       if( !( playerReady && player ) ) {
         return;
       }
-
-      removeYouTubeEvent( "buffering", onBuffering );
-      removeYouTubeEvent( "ended", onEnded );
-      removeYouTubeEvent( "play", onPlay );
-      removeYouTubeEvent( "pause", onPause );
-      onPause();
-      mediaReady = false;
-      loopedPlay = false;
-      impl.currentTime = 0;
-      mediaReadyCallbacks = [];
       clearInterval( currentTimeInterval );
       clearInterval( bufferedInterval );
       player.stopVideo();
       player.clearVideo();
-      player.destroy();
+
+      parent.removeChild( elem );
       elem = document.createElement( "div" );
     }
 
@@ -346,14 +296,7 @@
       }
 
       if( playerReady ) {
-        if( mediaReady ) {
-          destroyPlayer();
-        } else {
-          addMediaReadyCallback( function() {
-            changeSrc( aSrc );
-          });
-          return;
-        }
+        destroyPlayer();
       }
 
       parent.appendChild( elem );
@@ -365,12 +308,9 @@
       delete playerVars.v;
 
       // Sync autoplay, but manage internally
-      impl.autoplay = playerVars.autoplay === "1" || impl.autoplay;
-      delete playerVars.autoplay;
-
-      // Sync loop, but manage internally
-      impl.loop = playerVars.loop === "1" || impl.loop;
-      delete playerVars.loop;
+      playerVars.autoplay =  impl.autoplay || playerVars.autoplay ? 1 : 0;
+      // Don't loop
+      playerVars.loop = "0"
 
       // Don't show related videos when ending
       playerVars.rel = playerVars.rel || 0;
@@ -381,15 +321,12 @@
       // Don't show annotations by default
       playerVars.iv_load_policy = playerVars.iv_load_policy || 3;
 
-      // Disable keyboard controls by default
-      playerVars.disablekb = playerVars.disablekb || 1;
-
       // Don't show video info before playing
       playerVars.showinfo = playerVars.showinfo || 0;
 
       // Specify our domain as origin for iframe security
       var domain = window.location.protocol === "file:" ? "*" :
-      window.location.protocol + "//" + window.location.host;
+        window.location.protocol + "//" + window.location.host;
       playerVars.origin = playerVars.origin || domain;
 
       // Show/hide controls. Sync with impl.controls and prefer URL value.
@@ -397,53 +334,41 @@
       impl.controls = playerVars.controls;
 
       // Set wmode to transparent to show video overlays
-      playerVars.wmode = playerVars.wmode || "opaque";
+      playerVars.wmode = playerVars.wmode || "transparent";
 
       // Get video ID out of youtube url
       aSrc = regexYouTube.exec( aSrc )[ 1 ];
 
-      var xhrURL = "https://gdata.youtube.com/feeds/api/videos/" + aSrc + "?v=2&alt=jsonc&callback=?";
-      // Get duration value.
-      Popcorn.getJSONP( xhrURL, function( resp ) {
-
-        var warning = "failed to retreive duration data, reason: ";
-        if ( resp.error ) {
-          console.warn( warning + resp.error.message );
-          return ;
-        } else if ( !resp.data ) {
-          console.warn( warning + "no response data" );
-          return;
+      player = new YT.Player( elem, {
+        width: "100%",
+        height: "100%",
+        wmode: playerVars.wmode,
+        videoId: aSrc,
+        playerVars: playerVars,
+        events: {
+          'onReady': onPlayerReady,
+          'onError': onPlayerError,
+          'onStateChange': onPlayerStateChange
         }
-        impl.duration = resp.data.duration;
-        self.dispatchEvent( "durationchange" );
-
-        player = new YT.Player( elem, {
-          width: "100%",
-          height: "100%",
-          wmode: playerVars.wmode,
-          videoId: aSrc,
-          playerVars: playerVars,
-          events: {
-            'onReady': onPlayerReady,
-            'onError': onPlayerError,
-            'onStateChange': onPlayerStateChange
-          }
-        });
-
-        impl.networkState = self.NETWORK_LOADING;
-        self.dispatchEvent( "loadstart" );
-        self.dispatchEvent( "progress" );
       });
+
+      impl.networkState = self.NETWORK_LOADING;
+      self.dispatchEvent( "loadstart" );
+      self.dispatchEvent( "progress" );
+
+      // Queue a get duration call so we'll have duration info
+      // and can dispatch durationchange.
+      getDuration();
     }
 
     function monitorCurrentTime() {
       var playerTime = player.getCurrentTime();
       if ( !impl.seeking ) {
+        impl.currentTime = playerTime;
         if ( ABS( impl.currentTime - playerTime ) > CURRENT_TIME_MONITOR_MS ) {
           onSeeking();
           onSeeked();
         }
-        impl.currentTime = playerTime;
       } else if ( ABS( playerTime - impl.currentTime ) < 1 ) {
         onSeeked();
       }
@@ -452,16 +377,22 @@
     function monitorBuffered() {
       var fraction = player.getVideoLoadedFraction();
 
-      if ( fraction && lastLoadedFraction !== fraction ) {
+      if ( lastLoadedFraction !== fraction ) {
         lastLoadedFraction = fraction;
+
         onProgress();
+
+        if ( fraction >= 1 ) {
+          clearInterval( bufferedInterval );
+        }
       }
     }
 
+    function getCurrentTime() {
+      return impl.currentTime;
+    }
+
     function changeCurrentTime( aTime ) {
-      if ( aTime === impl.currentTime ) {
-        return;
-      }
       impl.currentTime = aTime;
       if( !mediaReady ) {
         addMediaReadyCallback( function() {
@@ -483,8 +414,7 @@
     function onSeeking() {
       // a seek in youtube fires a paused event.
       // we don't want to listen for this, so this state catches the event.
-      addYouTubeEvent( "pause", catchRoguePauseEvent );
-      removeYouTubeEvent( "pause", onPause );
+      catchRoguePauseEvent = true;
       impl.seeking = true;
       self.dispatchEvent( "seeking" );
     }
@@ -499,6 +429,7 @@
     }
 
     function onPlay() {
+
       if( impl.ended ) {
         changeCurrentTime( 0 );
         impl.ended = false;
@@ -506,6 +437,7 @@
       timeUpdateInterval = setInterval( onTimeUpdate,
                                         self._util.TIMEUPDATE_MS );
       impl.paused = false;
+
       if( playerPaused ) {
         playerPaused = false;
 
@@ -525,9 +457,7 @@
     self.play = function() {
       impl.paused = false;
       if( !mediaReady ) {
-        addMediaReadyCallback( function() {
-          self.play();
-        });
+        addMediaReadyCallback( function() { self.play(); } );
         return;
       }
       player.playVideo();
@@ -545,15 +475,13 @@
     self.pause = function() {
       impl.paused = true;
       if( !mediaReady ) {
-        addMediaReadyCallback( function() {
-          self.pause();
-        });
+        addMediaReadyCallback( function() { self.pause(); } );
         return;
       }
       // if a pause happens while seeking, ensure we catch it.
       // in youtube seeks fire pause events, and we don't want to listen to that.
       // except for the case of an actual pause.
-      catchRoguePauseEvent();
+      catchRoguePauseEvent = false;
       player.pauseVideo();
     };
 
@@ -565,19 +493,33 @@
         impl.ended = true;
         onPause();
         // YouTube will fire a Playing State change after the video has ended, causing it to loop.
-        addYouTubeEvent( "play", catchRoguePlayEvent );
-        removeYouTubeEvent( "play", onPlay );
+        catchRoguePlayEvent = true;
         self.dispatchEvent( "timeupdate" );
         self.dispatchEvent( "ended" );
       }
     }
 
+    function setVolume( aValue ) {
+      impl.volume = aValue;
+      if( !mediaReady ) {
+        addMediaReadyCallback( function() {
+          setVolume( impl.volume );
+        });
+        return;
+      }
+      player.setVolume( impl.volume * 100 );
+      self.dispatchEvent( "volumechange" );
+    }
+
+    function getVolume() {
+      // YouTube has getVolume(), but for sync access we use impl.volume
+      return impl.volume;
+    }
+
     function setMuted( aValue ) {
       impl.muted = aValue;
       if( !mediaReady ) {
-        addMediaReadyCallback( function() {
-          setMuted( impl.muted );
-        });
+        addMediaReadyCallback( function() { setMuted( impl.muted ); } );
         return;
       }
       player[ aValue ? "mute" : "unMute" ]();
@@ -634,7 +576,7 @@
 
       currentTime: {
         get: function() {
-          return impl.currentTime;
+          return getCurrentTime();
         },
         set: function( aValue ) {
           changeCurrentTime( aValue );
@@ -643,7 +585,7 @@
 
       duration: {
         get: function() {
-          return impl.duration;
+          return getDuration();
         }
       },
 
@@ -679,21 +621,16 @@
 
       volume: {
         get: function() {
-          return impl.volume;
+          // Remap from HTML5's 0-1 to YouTube's 0-100 range
+          var volume = getVolume();
+          return volume / 100;
         },
         set: function( aValue ) {
           if( aValue < 0 || aValue > 1 ) {
-            throw "Volume value must be between 0.0 and 1.0";
+            throw new Error("Volume value must be between 0.0 and 1.0");
           }
-          impl.volume = aValue;
-          if( !mediaReady ) {
-            addMediaReadyCallback( function() {
-              self.volume = aValue;
-            });
-            return;
-          }
-          player.setVolume( impl.volume * 100 );
-          self.dispatchEvent( "volumechange" );
+
+          setVolume( aValue );
         }
       },
 
@@ -721,49 +658,56 @@
               }
 
               //throw fake DOMException/INDEX_SIZE_ERR
-              throw "INDEX_SIZE_ERR: DOM Exception 1";
+              throw new Error("INDEX_SIZE_ERR: DOM Exception 1");
             },
             end: function( index ) {
+              var duration;
               if ( index === 0 ) {
-                if ( !impl.duration ) {
+                duration = getDuration();
+                if ( !duration ) {
                   return 0;
                 }
 
-                return impl.duration * lastLoadedFraction;
+                return duration * player.getVideoLoadedFraction();
               }
 
               //throw fake DOMException/INDEX_SIZE_ERR
-              throw "INDEX_SIZE_ERR: DOM Exception 1";
-            },
-            length: 1
+              throw new Error("INDEX_SIZE_ERR: DOM Exception 1");
+            }
           };
 
+          Object.defineProperties( timeRanges, {
+            length: {
+              get: function() {
+                return 1;
+              }
+            }
+          });
+
           return timeRanges;
-        },
-        configurable: true
+        }
       }
     });
-
-    self._canPlaySrc = Popcorn.HTMLYouTubeVideoElement._canPlaySrc;
-    self.canPlayType = Popcorn.HTMLYouTubeVideoElement.canPlayType;
-
-    return self;
   }
 
-  Popcorn.HTMLYouTubeVideoElement = function( id ) {
-    return new HTMLYouTubeVideoElement( id );
-  };
+  HTMLYouTubeVideoElement.prototype = new Popcorn._MediaElementProto();
+  HTMLYouTubeVideoElement.prototype.constructor = HTMLYouTubeVideoElement;
 
   // Helper for identifying URLs we know how to play.
-  Popcorn.HTMLYouTubeVideoElement._canPlaySrc = function( url ) {
+  HTMLYouTubeVideoElement.prototype._canPlaySrc = function( url ) {
     return (/(?:http:\/\/www\.|http:\/\/|www\.|\.|^)(youtu).*(?:\/|v=)(.{11})/).test( url ) ?
       "probably" :
       EMPTY_STRING;
   };
 
   // We'll attempt to support a mime type of video/x-youtube
-  Popcorn.HTMLYouTubeVideoElement.canPlayType = function( type ) {
+  HTMLYouTubeVideoElement.prototype.canPlayType = function( type ) {
     return type === "video/x-youtube" ? "probably" : EMPTY_STRING;
   };
+
+  Popcorn.HTMLYouTubeVideoElement = function( id ) {
+    return new HTMLYouTubeVideoElement( id );
+  };
+  Popcorn.HTMLYouTubeVideoElement._canPlaySrc = HTMLYouTubeVideoElement.prototype._canPlaySrc;
 
 }( Popcorn, window, document ));
