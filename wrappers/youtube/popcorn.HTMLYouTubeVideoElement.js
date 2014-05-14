@@ -709,5 +709,5 @@
     return new HTMLYouTubeVideoElement( id );
   };
   Popcorn.HTMLYouTubeVideoElement._canPlaySrc = HTMLYouTubeVideoElement.prototype._canPlaySrc;
-
+  Popcorn.HTMLYouTubeVideoElement.canPlayType = HTMLYouTubeVideoElement.prototype.canPlayType;
 }( Popcorn, window, document ));

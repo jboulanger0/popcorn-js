@@ -6,7 +6,7 @@
 
   var EMPTY_STRING = "",
       CURRENT_TIME_MONITOR_MS = 10,
-      SWF_URL = "http://flv-player.net/medias/player_flv_js.swf",
+      SWF_URL = "/player.swf",
       ABS = Math.abs;
 
   function HTMLFLVPlayerVideoElement( id ) {
@@ -65,7 +65,7 @@
 
 
     function monitorCurrentTime() {
-      var playerTime = listener.position;
+      var playerTime = parseInt(listener().position, 10);
       if ( !impl.seeking ) {
         impl.currentTime = playerTime;
         if ( ABS( impl.currentTime - playerTime ) > CURRENT_TIME_MONITOR_MS ) {
@@ -77,8 +77,8 @@
       }
     }
 
-        function monitorBuffered() {
-      var fraction = listener.bytesLoaded;
+    function monitorBuffered() {
+      var fraction = parseInt(listener().bytesLoaded, 10);
 
       if ( lastLoadedFraction !== fraction ) {
         lastLoadedFraction = fraction;
@@ -96,15 +96,15 @@
       mediaReadyCallbacks.unshift( callback );
     }
 
-    var listener = window["flvplayer_listener_"+playerUID] = {
+    window["flvplayer_listener_"+playerUID] = {
         onClick:     function(){
 
         },
         onKeyUp:     function(){
 
         },
+        onFlashInit: function(){},
         onInit:      function(){
-            console.log(this)
             playerReady = true
             player = document.getElementById(playerUID)
             player.SetVariable("method:setUrl", impl.src)
@@ -119,16 +119,22 @@
 
         }
     }
-
+    function listener(){
+      return window["flvplayer_listener_"+playerUID]
+    }
 
     function onUpdate(){
-      if (listener.isPlaying == "true") {
-        if (listener.position > 0) {
+      if (listener().isPlaying == "true") {
+        if(playerPaused){
+          playerPaused = false
+        }
+        if (parseInt(listener().position, 10) > 0) {
           onTimeUpdate()
         } else {
           onBuffering()
         }
       }else{
+
         if ( getDuration() > 0) {
           if(!playerPaused){
             onPause()
@@ -143,7 +149,7 @@
 
     function onReady() {
       bufferedInterval = setInterval( monitorBuffered, 50 );
-      impl.duration = listener.duration;
+      impl.duration = parseInt(listener.duration, 10);
       impl.readyState = self.HAVE_METADATA;
       self.dispatchEvent( "loadedmetadata" );
       currentTimeInterval = setInterval( monitorCurrentTime, CURRENT_TIME_MONITOR_MS );
@@ -241,26 +247,25 @@
         impl.ended = false;
       }
 
-      this.player.SetVariable("method:play", "")
+      player.SetVariable("method:play", "")
       self.dispatchEvent( "play" );
     };
 
 
 
     self.pause = function() {
-
       if ( !mediaReady ) {
         addMediaReadyCallback( function() { self.pause(); } );
         return;
       }
       impl.paused = true;
-      this.player.SetVariable("method:pause", "")
+      player.SetVariable("method:pause", "")
     };
 
 
 
     function getCurrentTime() {
-      return impl.position;
+      return impl.currentTime;
     }
 
     function changeCurrentTime( aTime ) {
@@ -317,6 +322,12 @@
         elem.appendChild(param);
 
         param = document.createElement('param');
+        param.setAttribute('name', 'wmode');
+        param.setAttribute('value', "transparent");
+        elem.appendChild(param);
+
+
+        param = document.createElement('param');
         param.setAttribute('name', 'bgcolor');
         param.setAttribute('value', "#000000");
         elem.appendChild(param);
@@ -330,8 +341,9 @@
             embed.setAttribute('src', SWF_URL);
             embed.setAttribute('type', 'application/x-shockwave-flash');
             embed.setAttribute('allowfullscreen', "true");
-            embed.setAttribute('allowScriptAccess',"always");
-            embed.setAttribute('wmode', "opaque");
+            embed.setAttribute('bgcolor', "#000000");
+            embed.setAttribute('AllowScriptAccess',"always");
+            embed.setAttribute('wmode', "transparent");
             embed.setAttribute('width', "100%");
             embed.setAttribute('height', "100%");
             embed.setAttribute('FlashVars', playerVars); // stringify playerVars
@@ -387,7 +399,7 @@
     }
 
     function getDuration() {
-      return listener.duration;
+      return parseInt(listener().duration, 10);
     }
 
     Object.defineProperties( self, {
@@ -525,7 +537,7 @@
                   return 0;
                 }
 
-                return duration * ( listener.bytesLoaded / 100 );
+                return duration * ( parseInt(listener().bytesLoaded, 10) / 100 );
               }
 
               //throw fake DOMException/INDEX_SIZE_ERR
@@ -554,7 +566,6 @@
     return (/\.flv/).test( url ) ? "probably" : EMPTY_STRING;
   };
 
-  // This could potentially support everything. It is a bit of a catch all player.
   Popcorn.HTMLFLVPlayerVideoElement.canPlayType = function( type ) {
     return type === "video/x-flv" || type === "video/flv" ? "probably" : EMPTY_STRING;
   };

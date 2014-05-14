@@ -491,5 +491,6 @@
     return new HTMLDailymotionVideoElement( id );
   };
   Popcorn.HTMLDailymotionVideoElement._canPlaySrc = HTMLDailymotionVideoElement.prototype._canPlaySrc;
+  Popcorn.HTMLDailymotionVideoElement.canPlayType = HTMLDailymotionVideoElement.prototype.canPlayType;
 
 }( Popcorn, window, document ));
