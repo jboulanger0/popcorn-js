@@ -293,10 +293,9 @@
       mediaReady = false
       playerReady = false
 
-      // Use any player vars passed on the URL
+
       var playerVars = "interval=" + CURRENT_TIME_MONITOR_MS + "&bgcolor=000000&listener=flvplayer_listener_" + playerUID;
 
-      //implement player ready add changeSRC to player callbac
       impl.src = aSrc;
       if(!playerReady){
 
@@ -305,6 +304,8 @@
         elem.setAttribute('width', "100%");
         elem.setAttribute('height', "100%");
         elem.setAttribute('data', SWF_URL);
+        elem.setAttribute('type', "application/x-shockwave-flash")
+        elem.setAttribute('classid', "clsid:D27CDB6E-AE6D-11cf-96B8-444553540000")
 
         var param = document.createElement('param');
         param.setAttribute('name', 'movie');
@@ -323,7 +324,7 @@
 
         param = document.createElement('param');
         param.setAttribute('name', 'wmode');
-        param.setAttribute('value', "transparent");
+        param.setAttribute('value', "opaque");
         elem.appendChild(param);
 
 
@@ -334,7 +335,7 @@
 
         param = document.createElement('param');
         param.setAttribute('name', 'FlashVars');
-        param.setAttribute('value', playerVars); // stringify playerVars
+        param.setAttribute('value', playerVars);
         elem.appendChild(param);
 
         var embed = document.createElement('embed');
@@ -343,10 +344,11 @@
             embed.setAttribute('allowfullscreen', "true");
             embed.setAttribute('bgcolor', "#000000");
             embed.setAttribute('AllowScriptAccess',"always");
-            embed.setAttribute('wmode', "transparent");
+            embed.setAttribute('wmode', "opaque");
             embed.setAttribute('width', "100%");
             embed.setAttribute('height', "100%");
-            embed.setAttribute('FlashVars', playerVars); // stringify playerVars
+            embed.setAttribute('FlashVars', playerVars);
+            embed.setAttribute('name', "object_"+playerUID);
 
         elem.appendChild(embed)
         self.parentNode.appendChild(elem)
