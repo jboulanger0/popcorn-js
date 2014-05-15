@@ -40,7 +40,7 @@
       throw new Error("ERROR: HTMLDailymotionVideoElement requires window.postMessage");
     }
 
-    var self = this,
+    var self = new Popcorn._MediaElementProto(),
       parent = typeof id === "string" ? Popcorn.dom.find( id ) : id,
       elem = document.createElement( "div" ),
       impl = {
@@ -472,6 +472,10 @@
       //   }
       // }
     });
+
+    self._canPlaySrc = Popcorn.HTMLYouTubeVideoElement._canPlaySrc;
+    self.canPlayType = Popcorn.HTMLYouTubeVideoElement.canPlayType;
+    return self
   }
 
   HTMLDailymotionVideoElement.prototype = new Popcorn._MediaElementProto();

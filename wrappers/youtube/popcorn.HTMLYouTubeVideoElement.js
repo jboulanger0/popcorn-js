@@ -56,7 +56,7 @@
       throw new Error("ERROR: HTMLYouTubeVideoElement requires window.postMessage");
     }
 
-    var self = this,
+    var self = new Popcorn._MediaElementProto(),
       parent = typeof id === "string" ? document.querySelector( id ) : id,
       elem = document.createElement( "div" ),
       impl = {
@@ -688,6 +688,11 @@
         }
       }
     });
+
+    self._canPlaySrc = Popcorn.HTMLYouTubeVideoElement._canPlaySrc;
+    self.canPlayType = Popcorn.HTMLYouTubeVideoElement.canPlayType;
+    return self
+
   }
 
   HTMLYouTubeVideoElement.prototype = new Popcorn._MediaElementProto();
