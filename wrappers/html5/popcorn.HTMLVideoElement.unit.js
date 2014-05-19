@@ -27,7 +27,7 @@ var videoSource = (function() {
     }
   }
 
-  throw "No Supported Media Types found for this browser.";
+  throw new Error("No Supported Media Types found for this browser.");
 
 }());
 

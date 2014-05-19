@@ -78,7 +78,7 @@
 
     // Invalid time, skip
     if ( sub.start === -1 || sub.end === -1 ) {
-      throw "Invalid time";
+      throw new Error("Invalid time");
     }
 
     // Eliminate advanced styles and convert forced line breaks

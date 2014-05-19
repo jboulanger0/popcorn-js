@@ -46,7 +46,7 @@
 
     // Vimeo iframe API requires postMessage
     if( !window.postMessage ) {
-      throw "ERROR: HTMLVimeoVideoElement requires window.postMessage";
+      throw new Error("ERROR: HTMLVimeoVideoElement requires window.postMessage");
     }
 
     var self = new Popcorn._MediaElementProto(),
@@ -579,7 +579,7 @@
         },
         set: function( aValue ) {
           if( aValue < 0 || aValue > 1 ) {
-            throw "Volume value must be between 0.0 and 1.0";
+            throw new Error("Volume value must be between 0.0 and 1.0");
           }
 
           setVolume( aValue );

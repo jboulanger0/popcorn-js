@@ -77,7 +77,7 @@
 
     // Invalid time string provided
     if ( l !== 12 && l !== 9 ) {
-      throw "Bad cue";
+      throw new Error("Bad cue");
     }
 
     l = t.length - 1;
@@ -90,7 +90,7 @@
         time += parseInt( t[ 0 ], 10 ) * 3600;
       }
     } catch ( e ) {
-      throw "Bad cue";
+      throw new Error("Bad cue");
     }
 
     return time;
@@ -110,13 +110,13 @@
         rWhitespace = /[\t ]+/;
 
     if ( !line || line.indexOf( "-->" ) === -1 ) {
-      throw "Bad cue";
+      throw new Error("Bad cue");
     }
 
     lineSegments = line.replace( rToken, " --> " ).split( rWhitespace );
 
     if ( lineSegments.length < 2 ) {
-      throw "Bad cue";
+      throw new Error("Bad cue");
     }
 
     sub.id = line;

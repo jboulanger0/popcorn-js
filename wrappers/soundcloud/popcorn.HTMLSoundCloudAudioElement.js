@@ -44,7 +44,7 @@
 
     // SoundCloud API requires postMessage
     if( !window.postMessage ) {
-      throw "ERROR: HTMLSoundCloudAudioElement requires window.postMessage";
+      throw new Error("ERROR: HTMLSoundCloudAudioElement requires window.postMessage");
     }
 
     var self = new Popcorn._MediaElementProto(),
@@ -649,7 +649,7 @@
         },
         set: function( aValue ) {
           if( aValue < 0 || aValue > 1 ) {
-            throw "Volume value must be between 0.0 and 1.0";
+            throw new Error("Volume value must be between 0.0 and 1.0");
           }
 
           // Remap from HTML5's 0-1 to SoundCloud's 0-100 range

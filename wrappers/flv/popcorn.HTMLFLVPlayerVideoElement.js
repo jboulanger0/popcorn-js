@@ -499,7 +499,7 @@
         },
         set: function( aValue ) {
           if ( aValue < 0 || aValue > 1 ) {
-            throw "Volume value must be between 0.0 and 1.0";
+            throw new Error("Volume value must be between 0.0 and 1.0");
           }
 
           setVolume( aValue );
@@ -530,7 +530,7 @@
               }
 
               //throw fake DOMException/INDEX_SIZE_ERR
-              throw "INDEX_SIZE_ERR: DOM Exception 1";
+              throw new Error("INDEX_SIZE_ERR: DOM Exception 1");
             },
             end: function( index ) {
               var duration;
@@ -544,7 +544,7 @@
               }
 
               //throw fake DOMException/INDEX_SIZE_ERR
-              throw "INDEX_SIZE_ERR: DOM Exception 1";
+              throw new Error("INDEX_SIZE_ERR: DOM Exception 1");
             },
             length: 1
           };
