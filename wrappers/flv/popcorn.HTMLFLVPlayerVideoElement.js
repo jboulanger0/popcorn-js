@@ -302,11 +302,10 @@
         elem.setAttribute('width', "100%");
         elem.setAttribute('height', "100%");
         elem.setAttribute('data', SWF_URL);
+        elem.setAttribute('type', "application/x-shockwave-flash")
         var isIE = eval("/*@cc_on!@*/false;")
         if(isIE){
           elem.setAttribute('classid', "clsid:D27CDB6E-AE6D-11cf-96B8-444553540000")
-        }else{
-          elem.setAttribute('type', "application/x-shockwave-flash")
         }
 
         var param = document.createElement('param');
