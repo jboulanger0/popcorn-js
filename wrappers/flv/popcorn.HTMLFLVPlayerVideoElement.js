@@ -298,14 +298,16 @@
 
       impl.src = aSrc;
       if(!playerReady){
-
-
         elem.setAttribute('id', playerUID);
         elem.setAttribute('width', "100%");
         elem.setAttribute('height', "100%");
         elem.setAttribute('data', SWF_URL);
-        elem.setAttribute('type', "application/x-shockwave-flash")
-        elem.setAttribute('classid', "clsid:D27CDB6E-AE6D-11cf-96B8-444553540000")
+        var isIE = eval("/*@cc_on!@*/false;")
+        if(isIE){
+          elem.setAttribute('classid', "clsid:D27CDB6E-AE6D-11cf-96B8-444553540000")
+        }else{
+          elem.setAttribute('type', "application/x-shockwave-flash")
+        }
 
         var param = document.createElement('param');
         param.setAttribute('name', 'movie');
@@ -348,7 +350,7 @@
             embed.setAttribute('width', "100%");
             embed.setAttribute('height', "100%");
             embed.setAttribute('FlashVars', playerVars);
-            embed.setAttribute('name', "object_"+playerUID);
+            embed.setAttribute('name', "embed_"+playerUID);
 
         elem.appendChild(embed)
         self.parentNode.appendChild(elem)
